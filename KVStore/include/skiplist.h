@@ -20,7 +20,7 @@ namespace KVStore {
         Node() {}
         
         Node(K k, V v, int level) {
-            this->Key = k;
+            this->key = k;
             this->value = v;
             this->node_level = level;
             this->forward = new Node<K, V>*[level + 1];
@@ -101,7 +101,7 @@ namespace KVStore {
         Node<K, V> *update[_max_level + 1];
         memset(update, 0, sizeof(Node<K, V>*) * (_max_level + 1));
 
-        for (int i = _skip_list_level; i >= 0; i--) {
+        for (int i = _max_level; i >= 0; i--) {
             while (current->forward[i] != nullptr && current->forward[i]->key < key) {
                 current = current->forward[i];
             }

@@ -53,9 +53,19 @@ namespace KVStore {
             _header = new Node<K, V>(k, v, _max_level);
         }
 
+        // 释放内存，防止内存泄露
         ~SkipList() {
-            // 还需要遍历删除所有节点
-            if (_header) delete _header;
+            if (_header) {
+                Node<K, V> *current = _header->forward[0];
+                
+                while(current != nullptr) {
+                    Node<K, V> *temp = current;      // 先记下当前节点
+                    current = current->forward[0];   // 指针后移
+                    delete temp;                     // 删掉当前节点
+                }
+
+                delete _header;
+            }
         }
 
         int insert(K key, V value);

@@ -123,7 +123,7 @@ namespace KVStore {
         
         // 将内存数据全量写入文件
         void dump_file() {
-            LOG("dump_filr----------------begin");
+            LOG("dump_file----------------begin");
             _file_writer.open(_file_path);
 
             Node<K, V> *node = _header->forward[0];
@@ -150,7 +150,7 @@ namespace KVStore {
 
             _file_writer.flush();
             _file_writer.close();
-            LOG("dump_filr----------------end");
+            LOG("dump_file----------------end");
         }
         // 从文件加载数据到内存
         void load_file() {

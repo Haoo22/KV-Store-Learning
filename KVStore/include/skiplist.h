@@ -94,6 +94,8 @@ namespace KVStore {
             
             K k; V v;
             _header = new Node<K, V>(k, v, _max_level);
+
+            load_file();
         }
 
         ~SkipList() {
@@ -150,7 +152,48 @@ namespace KVStore {
             LOG("dump_filr----------------end");
         }
         // 从文件加载数据到内存
-        void load_file();
+        void load_file() {
+            _file_reader.open(_file_path);
+
+            if (!_file_reader.is_open()) {
+                return;
+            }
+
+            LOG("load_file-------------begin");
+
+            std::string key_str, val_str;
+            key_str.reserve(1024); val_str.reserve(1024);
+
+            while (_file_reader.peek() != EOF) {
+                int key_len, val_len;
+
+                // 1. 读取 Key 长度 (4字节)
+                _file_reader.read(reinterpret_cast<char*>(&key_len), sizeof(int));
+                if (_file_reader.eof()) break; // 双重保险
+
+                // 2. 读取 Key 内容
+                key_str.resize(key_len);
+                _file_reader.read(&key_str[0], key_len);
+
+                // 3. 读取 Value 长度 (4字节)
+                _file_reader.read(reinterpret_cast<char*>(&val_len), sizeof(int));
+
+                // 4. 读取 Value 内容
+                val_str.resize(val_len);
+                _file_reader.read(&val_str[0], val_len);
+
+                // 5. 反序列化 (Binary String -> Object)
+                K key;
+                V val;
+                from_string(key_str, key);
+                from_string(val_str, val);
+
+                // 6. 插入跳表 (恢复数据)
+                insert(key, val);
+            }
+
+            _file_reader.close();
+        }
 
     private:
         // --- 内部工具函数 ---

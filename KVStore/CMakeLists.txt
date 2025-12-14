@@ -11,6 +11,9 @@ include_directories(include)
 # 3. 开启调试模式
 set(CMAKE_BUILD_TYPE Debug)
 
+# 它的作用相当于在 g++ 编译时加上了 -DDEBUG 参数
+add_definitions(-DDEBUG)
+
 # 告诉 CMake：所有生成的可执行文件，都放到项目根目录下的 bin 文件夹里
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 

@@ -6,6 +6,13 @@
 #include <cstring>
 #include <mutex>
 #include <random>
+#include <fstream>
+
+#ifdef DEBUG
+    #define LOG(msg) std::cout << msg << std::endl
+#else
+    #define LOG(msg) // 如果没有定义 DEBUG，这行代码就是空的，编译器会直接忽略
+#endif
 
 namespace KVStore {
 
@@ -50,7 +57,7 @@ namespace KVStore {
     class SkipList;
 
     template<typename K, typename V>
-    class Node{
+    class Node {
         friend class SkipList<K, V>;
     public:
         Node() {}
@@ -68,11 +75,11 @@ namespace KVStore {
         K get_key() const { return key; }
         V get_value() const { return value; }
     
-        private:
-            K key;
-            V value;
-            Node<K, V> **forward;
-            int node_level;
+    private:
+        K key;
+        V value;
+        Node<K, V> **forward;
+        int node_level;
     };
 
     template <typename K, typename V>
@@ -89,8 +96,8 @@ namespace KVStore {
             _header = new Node<K, V>(k, v, _max_level);
         }
 
-        // 释放内存，防止内存泄露
         ~SkipList() {
+            dump_file();
             if (_header) {
                 Node<K, V> *current = _header->forward[0];
                 
@@ -112,7 +119,36 @@ namespace KVStore {
         // --- 持久化接口 ---
         
         // 将内存数据全量写入文件
-        void dump_file();
+        void dump_file() {
+            LOG("dump_filr----------------begin");
+            _file_writer.open(_file_path);
+
+            Node<K, V> *node = _header->forward[0];
+
+            while (node != nullptr) {
+                // 1. 序列化 Key 和 Value
+                std::string key_str = to_string(node->key);
+                std::string val_str = to_string(node->value);
+
+                // 2. 获取长度
+                int key_len = key_str.size();
+                int val_len = val_str.size();
+
+                // 3. 写入 Key 长度和内容
+                _file_writer.write(reinterpret_cast<char*>(&key_len), sizeof(int));
+                _file_writer.write(key_str.data(), key_len);
+
+                // 4. 写入 Value 长度和内容
+                _file_writer.write(reinterpret_cast<char*>(&val_len), sizeof(int));
+                _file_writer.write(val_str.data(), val_len);
+
+                node = node->forward[0];
+            }
+
+            _file_writer.flush();
+            _file_writer.close();
+            LOG("dump_filr----------------end");
+        }
         // 从文件加载数据到内存
         void load_file();
 

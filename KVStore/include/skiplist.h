@@ -9,6 +9,42 @@
 
 namespace KVStore {
 
+    // -------------------------------------------
+    // 序列化 (To Binary String)
+    // -------------------------------------------
+
+    // 默认版本：处理 int, double, char 等 POD (Plain Old Data) 类型
+    template <typename T>
+    std::string to_string(const T& value) {
+        // 编译期安全检查：如果 T 不是“简单可复制”的（比如包含 std::string），直接报错！
+        static_assert(std::is_trivially_copyable<T>::value, "危险！此类型包含指针或复杂对象，必须手动实现 to_string 特化！");
+        return std::string((const char*)&value, sizeof(T));
+    }
+
+    // 特化版本：处理 std::string (已经是二进制流了，直接返回)
+    template <>
+    std::string to_string(const std::string& value) {
+        return value;
+    }
+
+    // -------------------------------------------
+    // 反序列化 (From Binary String)
+    // -------------------------------------------
+
+    // 默认版本：处理 POD 类型
+    template <typename T>
+    void from_string(const std::string& str, T& value) {
+        // 编译期安全检查：如果 T 不是“简单可复制”的（比如包含 std::string），直接报错！
+        static_assert(std::is_trivially_copyable<T>::value, "危险！此类型包含指针或复杂对象，必须手动实现 from_string 特化！");
+        memcpy(&value, str.c_str(), sizeof(T));
+    }
+
+    // 特化版本：处理 std::string
+    template <>
+    void from_string(const std::string& str, std::string& value) {
+        value = str;
+    }
+
     // 前置声明，为了让 Node 知道 SkipList 的存在
     template <typename K, typename V> 
     class SkipList;
@@ -73,6 +109,13 @@ namespace KVStore {
         void erase(K key);
         void display_list();
 
+        // --- 持久化接口 ---
+        
+        // 将内存数据全量写入文件
+        void dump_file();
+        // 从文件加载数据到内存
+        void load_file();
+
     private:
         // --- 内部工具函数 ---
         int get_random_level() {
@@ -97,8 +140,14 @@ namespace KVStore {
         int _element_count;
         std::mutex _mtx;
 
+        // 随机化参数相关的成员变量
         std::mt19937 _rng;
         std::bernoulli_distribution _dist;
+
+        // 文件操作相关的成员变量
+        std::string _file_path = "dump_file"; // 默认存储文件名
+        std::ofstream _file_writer;
+        std::ifstream _file_reader;
     };
 
     template<typename K, typename V>

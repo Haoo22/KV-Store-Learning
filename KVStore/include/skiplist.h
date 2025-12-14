@@ -85,8 +85,9 @@ namespace KVStore {
     template <typename K, typename V>
     class SkipList {
     public:
-        SkipList(int max_level, double probability = 0.5) 
+        SkipList(int max_level = 18, double probability = 0.5, std::string db_path = "dump_file") 
             : _max_level(max_level), 
+              _file_path(db_path),
               _skip_list_level(0), 
               _element_count(0),
               _rng(std::random_device{}()), 
@@ -224,7 +225,7 @@ namespace KVStore {
         std::bernoulli_distribution _dist;
 
         // 文件操作相关的成员变量
-        std::string _file_path = "dump_file"; // 默认存储文件名
+        std::string _file_path; // 默认存储文件名
         std::ofstream _file_writer;
         std::ifstream _file_reader;
     };

@@ -79,7 +79,7 @@ namespace KVStore {
     private:
         K key;
         V value;
-        std::vector<Nodeptr> forward;
+        std::vector<NodePtr> forward;
         int node_level;
     };
 

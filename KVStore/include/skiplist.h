@@ -7,6 +7,7 @@
 #include <mutex>
 #include <random>
 #include <fstream>
+#include <memory>
 
 #ifdef DEBUG
     #define LOG(msg) std::cout << msg << std::endl
@@ -60,17 +61,17 @@ namespace KVStore {
     class Node {
         friend class SkipList<K, V>;
     public:
-        Node() {}
+        using NodePtr = std::shared_ptr<Node<K, V>>;
+        Node() = default;
         
         Node(K k, V v, int level) {
             this->key = k;
             this->value = v;
             this->node_level = level;
-            this->forward = new Node<K, V>*[level + 1];
-            memset(this->forward, 0, sizeof(Node<K, V>*) * (level + 1));
+            this->forward.resize(level + 1);
         }
         
-        ~Node() { delete[] forward; }
+        ~Node() = default;
 
         K get_key() const { return key; }
         V get_value() const { return value; }
@@ -78,13 +79,15 @@ namespace KVStore {
     private:
         K key;
         V value;
-        Node<K, V> **forward;
+        std::vector<Nodeptr> forward;
         int node_level;
     };
 
     template <typename K, typename V>
     class SkipList {
     public:
+        using NodePtr = std::shared_ptr<Node<K, V>>;
+
         SkipList(int max_level = 18, double probability = 0.5, std::string db_path = "dump_file") 
             : _max_level(max_level), 
               _file_path(db_path),
@@ -94,30 +97,119 @@ namespace KVStore {
               _dist(probability) { 
             
             K k; V v;
-            _header = new Node<K, V>(k, v, _max_level);
+            _header = std::make_shared<Node<K, V>>(k, v, _max_level);
 
             load_file();
         }
 
         ~SkipList() {
             dump_file();
-            if (_header) {
-                Node<K, V> *current = _header->forward[0];
-                
-                while(current != nullptr) {
-                    Node<K, V> *temp = current;      // 先记下当前节点
-                    current = current->forward[0];   // 指针后移
-                    delete temp;                     // 删掉当前节点
-                }
-
-                delete _header;
-            }
         }
 
-        int insert(K key, V value);
-        bool search(K key, V& value);
-        void erase(K key);
-        void display_list();
+        int insert(K key, V value) {
+            std::lock_guard<std::mutex> lock(_mtx); // 上锁
+
+            NodePtr current = _header;
+            // update数组：用来记录每一层“该在谁后面插入”
+            std::vector<NodePtr> update(_max_level + 1, nullptr);
+
+            for (int i = _skip_list_level; i >= 0; i--) {
+                while (current->forward[i] != nullptr && current->forward[i]->key < key) {
+                    current = current->forward[i];
+                }
+
+                update[i] = current;
+            }
+
+            current = current->forward[0];
+
+            // 如果 key 存在，则更新 value
+            if (current != nullptr && current->key == key) {
+                current->value = value;
+                return 1; // 返回 1 代表更新
+            } 
+
+            // 如果 key 不存在，执行插入
+            int random_level = get_random_level();
+
+            if (random_level > _skip_list_level) {
+                for (int i = _skip_list_level + 1; i <= random_level; i++) {
+                    update[i] = _header;
+                }
+                _skip_list_level = random_level;
+            }
+
+            NodePtr insert_node = create_node(key, value, random_level);
+
+            for (int i = 0; i <= random_level; i++) {
+                insert_node->forward[i] = update[i]->forward[i];
+                update[i]->forward[i] = insert_node;
+            }
+
+            _element_count++;
+
+            return 0; // 返回 0 代表插入成功
+        }
+        bool search(K key, V& value) {
+            NodePtr current = _header;
+
+            for (int i = _skip_list_level; i >= 0; i--) {
+                while (current->forward[i] != nullptr && current->forward[i]->key < key) {
+                    current = current->forward[i];
+                }
+            }
+
+            current = current->forward[0];
+
+            if (current != nullptr && current->key == key) {
+                value = current->value;
+                return true;
+            }
+            return false;
+        }
+        void erase(K key) {
+            std::lock_guard<std::mutex> lock(_mtx);
+            
+            NodePtr current = _header;
+            std::vector<NodePtr> update(_max_level + 1);
+
+            for (int i = _skip_list_level; i >= 0; i--) {
+                while (current->forward[i] != nullptr && current->forward[i]->key < key) {
+                    current = current->forward[i];
+                }
+                update[i] = current;
+            }
+
+            current = current->forward[0];
+
+            if (current != nullptr && current->key == key) {
+                // 从下往上断开链接
+                for (int i = 0; i <= _skip_list_level; i++) {
+                    if (update[i]->forward[i] != current) 
+                        break;
+                    update[i]->forward[i] = current->forward[i];
+                }
+
+                // 移除空出的最高层
+                while (_skip_list_level > 0 && _header->forward[_skip_list_level] == nullptr) {
+                    _skip_list_level--;
+                }
+
+                _element_count--;
+            }
+        }
+        void display_list() {
+            std::cout << "\n***** Skip List *****"<<"\n"; 
+            for (int i = 0; i <= _skip_list_level; i++) {
+                NodePtr node = _header->forward[i];
+                std::cout << "Level " << i << ": ";
+                while (node != nullptr) {
+                    std::cout << node->get_key() << ":" << node->get_value() << "; ";
+                    node = node->forward[i];
+                }
+                std::cout << std::endl;
+            }
+        }
 
         // --- 持久化接口 ---
         
@@ -126,7 +218,7 @@ namespace KVStore {
             LOG("dump_file----------------begin");
             _file_writer.open(_file_path);
 
-            Node<K, V> *node = _header->forward[0];
+            NodePtr node = _header->forward[0];
 
             while (node != nullptr) {
                 // 1. 序列化 Key 和 Value
@@ -207,15 +299,14 @@ namespace KVStore {
             return k;
         }
         
-        Node<K, V>* create_node(K k, V v, int level) {
-            Node<K, V> *n = new Node<K, V>(k, v, level);
-            return n;
+        NodePtr create_node(K k, V v, int level) {
+            return std::make_shared<Node<K, V>>(k, v, level);
         }
 
     private:
         int _max_level;
         int _skip_list_level;
-        Node<K, V> *_header;
+        NodePtr _header;
         
         int _element_count;
         std::mutex _mtx;
@@ -230,116 +321,4 @@ namespace KVStore {
         std::ifstream _file_reader;
     };
 
-    template<typename K, typename V>
-    int SkipList<K, V>::insert(K key, V value) {
-        std::lock_guard<std::mutex> lock(_mtx); // 上锁
-
-        Node<K, V> *current = _header;
-        // update数组：用来记录每一层“该在谁后面插入”
-        std::vector<Node<K, V>*> update(_max_level + 1, nullptr);
-
-        for (int i = _skip_list_level; i >= 0; i--) {
-            while (current->forward[i] != nullptr && current->forward[i]->key < key) {
-                current = current->forward[i];
-            }
-
-            update[i] = current;
-        }
-
-        current = current->forward[0];
-
-        // 如果 key 存在，则更新 value
-        if (current != nullptr && current->key == key) {
-            current->value = value;
-            return 1; // 返回 1 代表更新
-        } 
-
-        // 如果 key 不存在，执行插入
-        int random_level = get_random_level();
-
-        if (random_level > _skip_list_level) {
-            for (int i = _skip_list_level + 1; i <= random_level; i++) {
-                update[i] = _header;
-            }
-            _skip_list_level = random_level;
-        }
-
-        Node<K, V>* insert_node = create_node(key, value, random_level);
-
-        for (int i = 0; i <= random_level; i++) {
-            insert_node->forward[i] = update[i]->forward[i];
-            update[i]->forward[i] = insert_node;
-        }
-
-        _element_count++;
-
-        return 0; // 返回 0 代表插入成功
-    }
-
-    template<typename K, typename V>
-    bool SkipList<K, V>::search(K key, V& value) {
-        Node<K, V> *current = _header;
-
-        for (int i = _skip_list_level; i >= 0; i--) {
-            while (current->forward[i] != nullptr && current->forward[i]->key < key) {
-                current = current->forward[i];
-            }
-        }
-
-        current = current->forward[0];
-
-        if (current != nullptr && current->key == key) {
-            value = current->value;
-            return true;
-        }
-        return false;
-    }
-
-    template<typename K, typename V>
-    void SkipList<K, V>::erase(K key) {
-        std::lock_guard<std::mutex> lock(_mtx);
-        
-        Node<K, V> *current = _header;
-        std::vector<Node<K, V>*> update(_max_level + 1);
-
-        for (int i = _skip_list_level; i >= 0; i--) {
-            while (current->forward[i] != nullptr && current->forward[i]->key < key) {
-                current = current->forward[i];
-            }
-            update[i] = current;
-        }
-
-        current = current->forward[0];
-
-        if (current != nullptr && current->key == key) {
-            // 从下往上断开链接
-            for (int i = 0; i <= _skip_list_level; i++) {
-                if (update[i]->forward[i] != current) 
-                    break;
-                update[i]->forward[i] = current->forward[i];
-            }
-
-            // 移除空出的最高层
-            while (_skip_list_level > 0 && _header->forward[_skip_list_level] == nullptr) {
-                _skip_list_level--;
-            }
-
-            delete current;
-            _element_count--;
-        }
-    }
-
-    template<typename K, typename V>
-    void SkipList<K, V>::display_list() {
-        std::cout << "\n***** Skip List *****"<<"\n"; 
-        for (int i = 0; i <= _skip_list_level; i++) {
-            Node<K, V> *node = _header->forward[i];
-            std::cout << "Level " << i << ": ";
-            while (node != nullptr) {
-                std::cout << node->get_key() << ":" << node->get_value() << "; ";
-                node = node->forward[i];
-            }
-            std::cout << std::endl;
-        }
-    }
 }

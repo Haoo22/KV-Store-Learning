@@ -18,4 +18,6 @@ add_definitions(-DDEBUG)
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
 # 4. 生成可执行文件
-add_executable(kv_server src/main.cpp)
+# add_executable(kv_server src/sever_main.cpp)
+
+add_executable(kv_test tests/test_main.cpp)
